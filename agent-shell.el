@@ -2858,7 +2858,9 @@ inserted into the shell buffer prompt."
   (when files
     (mapconcat (lambda (file)
                  (let ((text (concat "@" file)))
-                   (if-let ((image-display (agent-shell--load-image :file-path file :max-width 200)))
+                   (if-let ((image-display (agent-shell--load-image
+                                            :file-path (expand-file-name file (agent-shell-cwd))
+                                            :max-width 200)))
                        ;; Propertize text to display the image
                        (propertize text 'display image-display)
                      ;; Not an image, insert as normal text
