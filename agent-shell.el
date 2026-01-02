@@ -2768,12 +2768,12 @@ If in a project, use project root."
   "Return the project name for this shell.
 
 If in a project, use project name."
-  (or (when-let ((boundp 'projectile-mode)
+  (or (when-let (((boundp 'projectile-mode))
                  projectile-mode
-                 (fboundp 'projectile-project-name)
+                 ((fboundp 'projectile-project-name))
                  (root (projectile-project-root)))
         (projectile-project-name root))
-      (when-let ((fboundp 'project-name)
+      (when-let (((fboundp 'project-name))
                  (project (project-current)))
         (project-name project))
       (file-name-nondirectory
