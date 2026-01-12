@@ -147,6 +147,21 @@ See https://github.com/xenodium/agent-shell/issues/119"
   :type 'boolean
   :group 'agent-shell)
 
+(defcustom agent-shell-context-sources '(files region error line)
+  "Sources to consider when determining context.
+
+Each element can be:
+- A symbol: `files', `region', `error', or `line'
+- A function: Called with no arguments, should return context or nil
+
+Sources are checked in order until one returns non-nil."
+  :type '(repeat (choice (const :tag "Buffer files" files)
+                         (const :tag "Selected region" region)
+                         (const :tag "Flymake error at point" error)
+                         (const :tag "Current line" line)
+                         (function :tag "Custom function")))
+  :group 'agent-shell)
+
 (cl-defun agent-shell--make-acp-client (&key command
                                              command-params
                                              environment-variables
@@ -425,18 +440,18 @@ handles viewport mode detection, existing shell reuse, and project context."
                                        (error "No agent config found")))
       (if (and (not new-shell)
                (derived-mode-p 'agent-shell-mode))
-          (let ((text (agent-shell--relevant-text)))
+          (let ((text (agent-shell--context)))
             (agent-shell-toggle)
             (when text
               (agent-shell--insert-to-shell-buffer :text text)))
         (if-let ((existing-shell (seq-first (agent-shell-project-buffers))))
-            (let ((text (agent-shell--relevant-text)))
+            (let ((text (agent-shell--context)))
               (agent-shell--display-buffer existing-shell)
               (when text
                 (agent-shell--insert-to-shell-buffer :text text)))
           (if-let ((other-project-shell (seq-first (agent-shell-buffers))))
               (if (y-or-n-p "No shells in project.  Start a new one? ")
-                  (let ((text (agent-shell--relevant-text)))
+                  (let ((text (agent-shell--context)))
                     (agent-shell-start :config (or config
                                                    agent-shell-preferred-agent-config
                                                    (agent-shell-select-config
@@ -444,11 +459,11 @@ handles viewport mode detection, existing shell reuse, and project context."
                                                    (error "No agent config found")))
                     (when text
                       (agent-shell--insert-to-shell-buffer :text text)))
-                (let ((text (agent-shell--relevant-text)))
+                (let ((text (agent-shell--context)))
                   (agent-shell--display-buffer other-project-shell)
                   (when text
                     (agent-shell--insert-to-shell-buffer :text text))))
-            (let ((text (agent-shell--relevant-text)))
+            (let ((text (agent-shell--context)))
               (agent-shell-start :config (or config
                                              agent-shell-preferred-agent-config
                                              (agent-shell-select-config
@@ -2896,7 +2911,7 @@ inserted into the shell buffer prompt."
 
 ;;; Completion
 
-(cl-defun agent-shell--processed-files (&key files)
+(cl-defun agent-shell--get-files-context (&key files)
   "Process FILES into sendable text with image preview if applicable."
   (when files
     (mapconcat (lambda (file)
@@ -2932,7 +2947,7 @@ With prefix argument PROMPT-FOR-FILE, always prompt for file selection."
                         (list (completing-read "Send file: " (agent-shell--project-files)))
                         (user-error "No file to send")))))
       (agent-shell--insert-to-shell-buffer
-       :text (agent-shell--processed-files :files files)))))
+       :text (agent-shell--get-files-context :files files)))))
 
 (cl-defun agent-shell--buffer-files (&key obvious)
   "Return buffer file(s) or `dired' selected file(s).
@@ -2985,7 +3000,7 @@ The captured screenshot file path is then inserted into the shell prompt."
   (let* ((screenshots-dir (expand-file-name ".agent-shell/screenshots" (agent-shell-cwd)))
          (screenshot-path (agent-shell--capture-screenshot :destination-dir screenshots-dir)))
     (agent-shell-insert
-     :text (agent-shell--processed-files :files (list screenshot-path)))))
+     :text (agent-shell--get-files-context :files (list screenshot-path)))))
 
 (defun agent-shell--project-files ()
   "Get project files using projectile or project.el."
@@ -3496,14 +3511,14 @@ Returns an alist with insertion details or nil otherwise:
   "Send region to last accessed shell buffer in project."
   (interactive)
   (agent-shell-insert
-   :text (agent-shell--get-processed-region :deactivate t :no-error t)))
+   :text (agent-shell--get-region-context :deactivate t :no-error t)))
 
 (cl-defun agent-shell-send-dwim ()
   "Send region or error at point to last accessed shell buffer in project."
   (interactive)
-  (agent-shell-insert :text (agent-shell--relevant-text)))
+  (agent-shell-insert :text (agent-shell--context)))
 
-(cl-defun agent-shell--get-processed-region (&key deactivate no-error)
+(cl-defun agent-shell--get-region-context (&key deactivate no-error)
   "Get region as insertable text, ready for sending to agent.
 
 When DEACTIVATE is non-nil, deactivate region.
@@ -3610,7 +3625,7 @@ If CAP is non-nil, truncate at CAP."
               (setq final-lines (append (seq-take final-lines cap) '("   ..."))))
             (string-join final-lines "\n")))))))
 
-(defun agent-shell--get-processed-flymake-error-at-point ()
+(defun agent-shell--get-flymake-error-context ()
   "Get flymake error at point, ready for sending to agent."
   (when-let ((diagnostics (flymake-diagnostics (point))))
     (mapconcat
@@ -3666,15 +3681,32 @@ If CAP is non-nil, truncate at CAP."
      diagnostics
      "\n\n")))
 
-(defun agent-shell--relevant-text ()
-  "Return relevant text (if available).  Nil otherwise.
+(defun agent-shell--get-current-line-context ()
+  "Get the current line as insertable text, ready for sending to agent."
+  (save-excursion
+    (let ((start (line-beginning-position))
+          (end (line-end-position)))
+      (goto-char start)
+      (set-mark end)
+      (activate-mark)
+      (agent-shell--get-region-context :deactivate t :no-error t))))
 
-Relevant text could be either a region or error at point or files."
-  (or (agent-shell--processed-files
-       :files (agent-shell--buffer-files :obvious t))
-      (agent-shell--get-processed-region
-       :deactivate t :no-error t)
-      (agent-shell--get-processed-flymake-error-at-point)))
+(defun agent-shell--context ()
+  "Return context (if available).  Nil otherwise.
+
+Context could be either a region or error at point or files.
+The sources checked are controlled by `agent-shell-context-sources'."
+  (seq-some
+   (lambda (source)
+     (pcase source
+       ('files (agent-shell--get-files-context
+                :files (agent-shell--buffer-files :obvious t)))
+       ('region (agent-shell--get-region-context
+                 :deactivate t :no-error t))
+       ('error (agent-shell--get-flymake-error-context))
+       ('line (agent-shell--get-current-line-context))
+       ((pred functionp) (funcall source))))
+   agent-shell-context-sources))
 
 (cl-defun agent-shell--get-region (&key deactivate)
   "Get the active region as an alist.
