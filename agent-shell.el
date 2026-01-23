@@ -2852,9 +2852,9 @@ If FILE-PATH is not an image, returns nil."
   "Return all shell buffers in the same project as current buffer."
   (let ((project-root (agent-shell-cwd)))
     (seq-filter (lambda (buffer)
-                  (with-current-buffer buffer
-                    (string-prefix-p project-root
-                                     (expand-file-name default-directory))))
+                  (equal project-root
+                         (with-current-buffer buffer
+                           (agent-shell-cwd))))
                 (agent-shell-buffers))))
 
 (cl-defun agent-shell--shell-buffer (&key viewport-buffer no-error no-create)
@@ -2975,18 +2975,26 @@ inserted into the shell buffer prompt."
 
 ;;; Completion
 
-(cl-defun agent-shell--get-files-context (&key files)
-  "Process FILES into sendable text with image preview if applicable."
+(cl-defun agent-shell--get-files-context (&key files agent-cwd)
+  "Process FILES into sendable text with image preview if applicable.
+
+Uses AGENT-CWD to shorten file paths where necessary."
   (when files
     (mapconcat (lambda (file)
+                 (when agent-cwd
+                   (setq file (expand-file-name file agent-cwd)))
                  (let ((text (concat "@" file)))
                    (if-let ((image-display (agent-shell--load-image
-                                            :file-path (expand-file-name file (agent-shell-cwd))
+                                            :file-path file
                                             :max-width 200)))
                        ;; Propertize text to display the image
                        (propertize text 'display image-display)
                      ;; Not an image, insert as normal text
-                     text)))
+                     (if (and agent-cwd (file-in-directory-p file agent-cwd))
+                         ;; File within project, shorten path.
+                         (propertize text 'display
+                                     (concat "@" (file-relative-name file agent-cwd)))
+                       text))))
                files
                "\n\n")))
 
@@ -3761,7 +3769,12 @@ The sources checked are controlled by `agent-shell-context-sources'."
      (lambda (source)
        (pcase source
          ('files (agent-shell--get-files-context
-                  :files (agent-shell--buffer-files :obvious t)))
+                  :files (agent-shell--buffer-files :obvious t)
+                  :agent-cwd (when-let ((shell-buffer (agent-shell--shell-buffer
+                                                       :no-create t
+                                                       :no-error t)))
+                               (with-current-buffer shell-buffer
+                                 (agent-shell-cwd)))))
          ('region (agent-shell--get-region-context
                    :deactivate t :no-error t))
          ('error (agent-shell--get-error-context))
