@@ -2677,6 +2677,15 @@ Must provide ON-SESSION-INIT (lambda ())."
    :on-failure (agent-shell--make-error-handler
                 :state agent-shell--state :shell shell)))
 
+(defun agent-shell--eval-dynamic-values (obj)
+  "Recursively evaluate any function/lambda values in OBJ."
+  (cond
+   ((and (functionp obj) (not (symbolp obj))) (agent-shell--eval-dynamic-values (funcall obj)))
+   ((consp obj)
+    (cons (agent-shell--eval-dynamic-values (car obj))
+          (agent-shell--eval-dynamic-values (cdr obj))))
+   (t obj)))
+
 (defun agent-shell--mcp-servers ()
   "Return normalized MCP servers configuration for JSON serialization.
 
@@ -2686,15 +2695,7 @@ normalized server configs."
   (when agent-shell-mcp-servers
     (apply #'vector
            (mapcar (lambda (server)
-                     (when (functionp server)
-                       (setq server (funcall server)))
-                     (when (consp server)
-                       (setq server (mapcar (lambda (obj)
-                                              (cons
-                                               (car obj)
-                                               (if (functionp (cdr obj))
-                                                   (funcall (cdr obj))
-                                                 (cdr obj)))) server)))
+                     (setq server (agent-shell--eval-dynamic-values server))
                      (let ((normalized (copy-alist server)))
                        (when (map-contains-key normalized 'args)
                          (let ((args (map-elt normalized 'args)))
