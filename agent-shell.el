@@ -63,6 +63,7 @@
 (require 'agent-shell-pi)
 (require 'agent-shell-project)
 (require 'agent-shell-qwen)
+(require 'agent-shell-worktree)
 (require 'agent-shell-ui)
 (require 'agent-shell-viewport)
 (require 'image)
@@ -284,6 +285,13 @@ Can be one of:
 
 Assume screenshot file path will be appended to this list."
   :type '(repeat string)
+  :group 'agent-shell)
+
+(defcustom agent-shell-worktree-root-directory "~/.agent-shell/worktrees"
+  "Root directory for git worktrees created by `agent-shell-new-worktree-shell'.
+
+Each worktree will be created under <root>/<repo-name>/<worktree-name>."
+  :type 'directory
   :group 'agent-shell)
 
 ;;;###autoload
