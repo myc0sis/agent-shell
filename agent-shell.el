@@ -2179,6 +2179,45 @@ Returns:
           (when inherit-env
             process-environment)))
 
+(defvar-local agent-shell--header-cache nil
+  "Cache for graphical headers.
+A buffer-local hash table mapping cache keys to header strings.")
+
+(cl-defun agent-shell--make-header-model (state &key qualifier bindings)
+  "Create a header model alist from STATE, QUALIFIER, and BINDINGS.
+The model contains all inputs needed to render the graphical header."
+  (let* ((model-name (or (map-elt (seq-find (lambda (model)
+                                              (string= (map-elt model :model-id)
+                                                       (map-nested-elt state '(:session :model-id))))
+                                            (map-nested-elt state '(:session :models)))
+                                  :name)
+                         (map-nested-elt state '(:session :model-id))))
+         (mode-id (map-nested-elt state '(:session :mode-id)))
+         (mode-name (when mode-id
+                      (or (agent-shell--resolve-session-mode-name
+                           mode-id
+                           (agent-shell--get-available-modes state))
+                          mode-id))))
+    `((:buffer-name . ,(map-nested-elt state '(:agent-config :buffer-name)))
+      (:icon-name . ,(map-nested-elt state '(:agent-config :icon-name)))
+      (:model-id . ,(map-nested-elt state '(:session :model-id)))
+      (:model-name . ,model-name)
+      (:mode-id . ,mode-id)
+      (:mode-name . ,mode-name)
+      (:directory . ,default-directory)
+      (:frame-width . ,(frame-pixel-width))
+      (:font-height . ,(default-font-height))
+      (:background-mode . ,(frame-parameter nil 'background-mode))
+      (:status-frame . ,(agent-shell--status-frame))
+      (:qualifier . ,qualifier)
+      (:bindings . ,bindings))))
+
+(defun agent-shell--header-cache-key (model)
+  "Generate a cache key from header MODEL.
+Joins all values from the model alist."
+  (mapconcat (lambda (pair) (format "%s" (cdr pair)))
+             model "|"))
+
 (cl-defun agent-shell--make-header (state &key qualifier bindings)
   "Return header text for current STATE.
 
@@ -2192,27 +2231,17 @@ BINDINGS is a list of alists defining key bindings to display, each with:
   :description - Description to display (e.g., \"next hunk\")"
   (unless state
     (error "STATE is required"))
-  (let* ((model-name (or (map-elt (seq-find (lambda (model)
-                                              (string= (map-elt model :model-id)
-                                                       (map-nested-elt state '(:session :model-id))))
-                                            (map-nested-elt state '(:session :models)))
-                                  :name)
-                         (map-nested-elt state '(:session :model-id))))
-         (mode-name (when-let ((mode-id (map-nested-elt state '(:session :mode-id))))
-                      (or (agent-shell--resolve-session-mode-name
-                           mode-id
-                           (agent-shell--get-available-modes state))
-                          (map-nested-elt state '(:session :mode-id)))))
+  (let* ((header-model (agent-shell--make-header-model state :qualifier qualifier :bindings bindings))
          (text-header (format " %s%s%s @ %s"
-                              (propertize (concat (map-nested-elt state '(:agent-config :buffer-name)) " Agent")
+                              (propertize (concat (map-elt header-model :buffer-name) " Agent")
                                           'font-lock-face 'font-lock-variable-name-face)
-                              (if model-name
-                                  (concat " ➤ " (propertize model-name 'font-lock-face 'font-lock-negation-char-face))
+                              (if (map-elt header-model :model-name)
+                                  (concat " ➤ " (propertize (map-elt header-model :model-name) 'font-lock-face 'font-lock-negation-char-face))
                                 "")
-                              (if mode-name
-                                  (concat " ➤ " (propertize mode-name 'font-lock-face 'font-lock-type-face))
+                              (if (map-elt header-model :mode-name)
+                                  (concat " ➤ " (propertize (map-elt header-model :mode-name) 'font-lock-face 'font-lock-type-face))
                                 "")
-                              (propertize (string-remove-suffix "/" (abbreviate-file-name default-directory))
+                              (propertize (string-remove-suffix "/" (abbreviate-file-name (map-elt header-model :directory)))
                                           'font-lock-face 'font-lock-string-face))))
     (pcase agent-shell-header-style
       ((or 'none (pred null)) nil)
@@ -2224,115 +2253,126 @@ BINDINGS is a list of alists defining key bindings to display, each with:
            ;; |      | Bottom text line
            ;; +------+
            ;; [Qualifier] Bindings row (optional, last row)
-           (let* ((image-height (* 3 (default-font-height)))
-                  (image-width image-height)
-                  (text-height 25)
-                  (row-spacing 0)  ; Spacing between icon/text rows and bindings row
-                  (icon-text-row-height image-height)
-                  (bindings-row-height (if (or bindings qualifier) text-height 0))
-                  (total-height (+ icon-text-row-height bindings-row-height 10))
-                  ;; Y positions for each row (baseline positions for text)
-                  (icon-y 0)
-                  (icon-text-y text-height)
-                  ;; Bindings positioned right after the bottom text (2 text lines) plus spacing
-                  (bindings-y (+ (* 3 text-height) row-spacing))
-                  (svg (svg-create (frame-pixel-width) total-height))
-                  (icon-filename
-                   (if (map-nested-elt state '(:agent-config :icon-name))
-                       (agent-shell--fetch-agent-icon (map-nested-elt state '(:agent-config :icon-name)))
-                     (agent-shell--make-agent-fallback-icon (map-nested-elt state '(:agent-config :buffer-name)) 100)))
-                  (image-type (or (agent-shell--image-type-to-mime icon-filename)
-                                  "image/png")))
+           (if (not (map-elt header-model :buffer-name))
+               ""
+             (unless agent-shell--header-cache
+               (setq agent-shell--header-cache (make-hash-table :test #'equal)))
+             (let* ((cache-key (agent-shell--header-cache-key header-model))
+                    (cached (map-elt agent-shell--header-cache cache-key)))
+               (if cached
+                   cached
+               (let* ((image-height (* 3 (map-elt header-model :font-height)))
+                      (image-width image-height)
+                      (text-height 25)
+                      (row-spacing 0)  ; Spacing between icon/text rows and bindings row
+                      (icon-text-row-height image-height)
+                      (bindings-row-height (if (or bindings qualifier) text-height 0))
+                      (total-height (+ icon-text-row-height bindings-row-height 10))
+                      ;; Y positions for each row (baseline positions for text)
+                      (icon-y 0)
+                      (icon-text-y text-height)
+                      ;; Bindings positioned right after the bottom text (2 text lines) plus spacing
+                      (bindings-y (+ (* 3 text-height) row-spacing))
+                      (svg (svg-create (map-elt header-model :frame-width) total-height))
+                      (icon-filename
+                       (if (map-elt header-model :icon-name)
+                           (agent-shell--fetch-agent-icon (map-elt header-model :icon-name))
+                         (agent-shell--make-agent-fallback-icon (map-elt header-model :buffer-name) 100)))
+                      (image-type (or (agent-shell--image-type-to-mime icon-filename)
+                                      "image/png")))
              ;; Icon
              (when (and icon-filename image-type)
                (svg-embed svg icon-filename
                           image-type nil
                           :x 0 :y icon-y :width image-width :height image-height))
              ;; Top text line
-             (svg--append svg (let ((text-node (dom-node 'text
-                                                         `((x . ,(+ image-width 10))
-                                                           (y . ,icon-text-y)))))
-                                ;; Agent name
-                                (dom-append-child text-node
-                                                  (dom-node 'tspan
-                                                            `((fill . ,(face-attribute 'font-lock-variable-name-face :foreground)))
-                                                            (concat (map-nested-elt state '(:agent-config :buffer-name)) " Agent")))
-                                ;; Model name (optional)
-                                (when model-name
-                                  ;; Add separator arrow
-                                  (dom-append-child text-node
-                                                    (dom-node 'tspan
-                                                              `((fill . ,(face-attribute 'default :foreground))
-                                                                (dx . "8"))
-                                                              "➤"))
-                                  ;; Add model name
-                                  (dom-append-child text-node
-                                                    (dom-node 'tspan
-                                                              `((fill . ,(face-attribute 'font-lock-negation-char-face :foreground))
-                                                                (dx . "8"))
-                                                              model-name)))
-                                ;; Session mode (optional)
-                                (when-let ((mode-id (map-nested-elt state '(:session :mode-id))))
-                                  ;; Add separator arrow
-                                  (dom-append-child text-node
-                                                    (dom-node 'tspan
-                                                              `((fill . ,(face-attribute 'default :foreground))
-                                                                (dx . "8"))
-                                                              "➤"))
-                                  ;; Add session mode text
-                                  (dom-append-child text-node
-                                                    (dom-node 'tspan
-                                                              `((fill . ,(or (face-attribute 'font-lock-type-face :foreground nil t)
-                                                                             "#6699cc"))
-                                                                (dx . "8"))
-                                                              mode-name)))
-                                (when-let ((status-frame (agent-shell--status-frame)))
-                                  (dom-append-child text-node
-                                                    (dom-node 'tspan
-                                                              `((fill . ,(face-attribute 'default :foreground))
-                                                                (dx . "8"))
-                                                              status-frame)))
-                                text-node))
-             ;; Bottom text line
-             (svg-text svg (string-remove-suffix "/" (abbreviate-file-name default-directory))
-                       :x (+ image-width 10) :y (+ icon-text-y text-height)
-                       :fill (face-attribute 'font-lock-string-face :foreground))
-             ;; Bindings row (last row if bindings or qualifier present)
-             (when (or bindings qualifier)
                (svg--append svg (let ((text-node (dom-node 'text
-                                                           `((x . 0)
-                                                             (y . ,bindings-y))))
-                                      (first t))
-                                  ;; Add qualifier if present
-                                  (when qualifier
+                                                           `((x . ,(+ image-width 10))
+                                                             (y . ,icon-text-y)))))
+                                  ;; Agent name
+                                  (dom-append-child text-node
+                                                    (dom-node 'tspan
+                                                              `((fill . ,(face-attribute 'font-lock-variable-name-face :foreground)))
+                                                              (concat (map-elt header-model :buffer-name) " Agent")))
+                                  ;; Model name (optional)
+                                  (when (map-elt header-model :model-name)
+                                    ;; Add separator arrow
                                     (dom-append-child text-node
                                                       (dom-node 'tspan
-                                                                `((fill . ,(face-attribute 'default :foreground)))
-                                                                qualifier))
-                                    (setq first nil))
-                                  (dolist (binding bindings)
-                                    (when (map-elt binding :description)
-                                      ;; Add key (XML-escape angle brackets)
+                                                                `((fill . ,(face-attribute 'default :foreground))
+                                                                  (dx . "8"))
+                                                                "➤"))
+                                    ;; Add model name
+                                    (dom-append-child text-node
+                                                      (dom-node 'tspan
+                                                                `((fill . ,(face-attribute 'font-lock-negation-char-face :foreground))
+                                                                  (dx . "8"))
+                                                                (map-elt header-model :model-name))))
+                                  ;; Session mode (optional)
+                                  (when (map-elt header-model :mode-id)
+                                    ;; Add separator arrow
+                                    (dom-append-child text-node
+                                                      (dom-node 'tspan
+                                                                `((fill . ,(face-attribute 'default :foreground))
+                                                                  (dx . "8"))
+                                                                "➤"))
+                                    ;; Add session mode text
+                                    (dom-append-child text-node
+                                                      (dom-node 'tspan
+                                                                `((fill . ,(or (face-attribute 'font-lock-type-face :foreground nil t)
+                                                                               "#6699cc"))
+                                                                  (dx . "8"))
+                                                                (map-elt header-model :mode-name))))
+                                  (when (map-elt header-model :status-frame)
+                                    (dom-append-child text-node
+                                                      (dom-node 'tspan
+                                                                `((fill . ,(face-attribute 'default :foreground))
+                                                                  (dx . "8"))
+                                                                (map-elt header-model :status-frame))))
+                                  text-node))
+             ;; Bottom text line
+               (svg-text svg (string-remove-suffix "/" (abbreviate-file-name (map-elt header-model :directory)))
+                         :x (+ image-width 10) :y (+ icon-text-y text-height)
+                         :fill (face-attribute 'font-lock-string-face :foreground))
+               ;; Bindings row (last row if bindings or qualifier present)
+               (when (or bindings qualifier)
+                 (svg--append svg (let ((text-node (dom-node 'text
+                                                             `((x . 0)
+                                                               (y . ,bindings-y))))
+                                        (first t))
+                                    ;; Add qualifier if present
+                                    (when qualifier
                                       (dom-append-child text-node
                                                         (dom-node 'tspan
-                                                                  `((fill . ,(face-attribute 'help-key-binding :foreground))
-                                                                    ,@(unless first '((dx . "8"))))
-                                                                  (replace-regexp-in-string
-                                                                   "<" "&lt;"
-                                                                   (replace-regexp-in-string
-                                                                    ">" "&gt;"
-                                                                    (map-elt binding :key)))))
-                                      (setq first nil)
-                                      ;; Add space and description
-                                      (dom-append-child text-node
-                                                        (dom-node 'tspan
-                                                                  `((fill . ,(face-attribute 'default :foreground))
-                                                                    (dx . "8"))
-                                                                  (map-elt binding :description)))))
-                                  text-node)))
-             (format " %s" (with-temp-buffer
-                             (svg-insert-image svg)
-                             (buffer-string))))
+                                                                  `((fill . ,(face-attribute 'default :foreground)))
+                                                                  qualifier))
+                                      (setq first nil))
+                                    (dolist (binding bindings)
+                                      (when (map-elt binding :description)
+                                        ;; Add key (XML-escape angle brackets)
+                                        (dom-append-child text-node
+                                                          (dom-node 'tspan
+                                                                    `((fill . ,(face-attribute 'help-key-binding :foreground))
+                                                                      ,@(unless first '((dx . "8"))))
+                                                                    (replace-regexp-in-string
+                                                                     "<" "&lt;"
+                                                                     (replace-regexp-in-string
+                                                                      ">" "&gt;"
+                                                                      (map-elt binding :key)))))
+                                        (setq first nil)
+                                        ;; Add space and description
+                                        (dom-append-child text-node
+                                                          (dom-node 'tspan
+                                                                    `((fill . ,(face-attribute 'default :foreground))
+                                                                      (dx . "8"))
+                                                                    (map-elt binding :description)))))
+                                    text-node)))
+               (let ((result (format " %s" (with-temp-buffer
+                                             (svg-insert-image svg)
+                                             (buffer-string)))))
+                 (when cache-key
+                   (map-put! agent-shell--header-cache cache-key result))
+                 result)))))
          text-header))
       (_ text-header))))
 
