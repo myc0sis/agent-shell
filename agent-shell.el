@@ -28,7 +28,7 @@
 ;; interact with any agent powered by ACP (Agent Client Protocol).
 ;;
 ;; `agent-shell' currently provides access to Claude Code, Cursor,
-;; Gemini CLI, Goose, Codex, OpenCode, Qwen, and Auggie amongst other agents.
+;; Gemini CLI, Goose, Codex, OpenCode, NanoCode, Qwen, and Auggie amongst other agents.
 ;;
 ;; This package depends on the `acp' package to provide the ACP layer
 ;; as per https://agentclientprotocol.com spec.
@@ -60,6 +60,7 @@
 (require 'agent-shell-mistral)
 (require 'agent-shell-openai)
 (require 'agent-shell-opencode)
+(require 'agent-shell-nanocode)
 (require 'agent-shell-pi)
 (require 'agent-shell-project)
 (require 'agent-shell-qwen)
@@ -357,6 +358,7 @@ Goose, Cursor, Auggie, and others."
         (agent-shell-goose-make-agent-config)
         (agent-shell-mistral-make-config)
         (agent-shell-opencode-make-agent-config)
+        (agent-shell-nanocode-make-agent-config)
         (agent-shell-pi-make-agent-config)
         (agent-shell-qwen-make-agent-config)))
 
@@ -387,6 +389,7 @@ configuration alist for backwards compatibility."
                  (const :tag "Goose" goose)
                  (const :tag "Mistral" le-chat)
                  (const :tag "OpenCode" opencode)
+                 (const :tag "NanoCode" nanocode)
                  (const :tag "Pi" pi)
                  (const :tag "Qwen Code" qwen-code)
                  (symbol :tag "Custom identifier")

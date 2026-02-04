@@ -19,7 +19,7 @@ Thank you!
 
 A native Emacs shell to interact with LLM agents powered by ACP ([[https://agentclientprotocol.com][Agent Client Protocol]]).
 
-With agent-shell, you can chat with the likes of Gemini CLI, Claude Code, Auggie, Mistral Vibe, or any other ACP-driven agent.
+With agent-shell, you can chat with the likes of Gemini CLI, Claude Code, NanoCode, Auggie, Mistral Vibe, or any other ACP-driven agent.
 
 Watch on [[https://www.youtube.com/watch?v=R2Ucr3amgGg][YouTube]]
 
@@ -63,6 +63,22 @@ npm install -g @zed-industries/claude-code-acp
 *** Codex
 
 For OpenAI's Codex, install [[https://github.com/zed-industries/codex-acp][zed/codex-acp]] and ensure the `codex-acp` executable is in PATH.
+
+*** NanoCode
+
+For NanoCode, install with:
+
+#+begin_src bash
+bun i -g nanocode@latest
+#+end_src
+
+Authenticate with:
+
+#+begin_src bash
+nanocode auth login
+#+end_src
+
+See https://github.com/nanogpt-community/nanocode for details.
 
 *** Gemini CLI
 
@@ -301,6 +317,28 @@ For API key authentication:
        :api-key (lambda () (auth-source-pass-get "secret" "openai-api-key"))))
 #+end_src
 
+*** NanoCode
+
+For API key authentication:
+
+#+begin_src emacs-lisp
+;; With string
+(setq agent-shell-nanocode-authentication
+      (agent-shell-nanocode-make-authentication :api-key "your-nanogpt-api-key-here"))
+
+;; With function
+(setq agent-shell-nanocode-authentication
+      (agent-shell-nanocode-make-authentication
+       :api-key (lambda () (auth-source-pass-get "secret" "nanogpt-api-key"))))
+#+end_src
+
+For no authentication (when using `nanocode auth login`):
+
+#+begin_src emacs-lisp
+(setq agent-shell-nanocode-authentication
+      (agent-shell-nanocode-make-authentication :none t))
+#+end_src
+
 *** Goose
 
 For OpenAI API key authentication:
@@ -360,7 +398,7 @@ For API key authentication:
 
 *** Customizing Available Agents
 
-By default, =agent-shell= includes configurations for all supported agents (Claude Code, Gemini CLI, Codex, Goose, Qwen Code, and Auggie). You can customize which agents are available through the =agent-shell-agent-configs= variable.
+By default, =agent-shell= includes configurations for all supported agents (Claude Code, Gemini CLI, Codex, NanoCode, Goose, Qwen Code, and Auggie). You can customize which agents are available through the =agent-shell-agent-configs= variable.
 
 ** Usage
 
@@ -377,6 +415,7 @@ Start a specific agent shell session directly:
 - =M-x agent-shell-anthropic-start-claude-code= - Start a Claude Code agent session
 - =M-x agent-shell-auggie-start-agent= - Start an Auggie agent session
 - =M-x agent-shell-openai-start-codex= - Start a Codex agent session
+- =M-x agent-shell-nanocode-start-agent= - Start a NanoCode agent session
 - =M-x agent-shell-google-start-gemini= - Start a Gemini agent session
 - =M-x agent-shell-goose-start-agent= - Start a Goose agent session
 - =M-x agent-shell-cursor-start-agent= - Start a Cursor agent session
@@ -584,6 +623,9 @@ always go to Evil modes if you need to with ~C-z~).
 | agent-shell-mistral-default-model-id          | Default Mistral AI model ID.                                                    |
 | agent-shell-mistral-default-session-mode-id   | Default Mistral AI session mode ID.                                             |
 | agent-shell-mistral-environment               | Environment variables for the Mistral Vibe client.                              |
+| agent-shell-nanocode-authentication           | Configuration for NanoCode authentication.                                      |
+| agent-shell-nanocode-command                  | Command and parameters for the NanoCode client.                                 |
+| agent-shell-nanocode-environment              | Environment variables for the NanoCode client.                                  |
 | agent-shell-openai-authentication             | Configuration for OpenAI authentication.                                        |
 | agent-shell-openai-codex-command              | Command and parameters for the OpenAI Codex client.                             |
 | agent-shell-openai-codex-environment          | Environment variables for the OpenAI Codex client.                              |
@@ -672,6 +714,7 @@ always go to Evil modes if you need to with ~C-z~).
 |                 | agent-shell-jump-to-latest-permission-button-row        | Jump to the latest permission button row.                                     |
 |                 | agent-shell-mistral-start-vibe                          | Start an interactive Mistral Vibe agent shell.                                |
 |                 | agent-shell-mode                                        | Major mode for agent shell.                                                   |
+|                 | agent-shell-nanocode-start-agent                        | Start an interactive NanoCode agent shell.                                    |
 |                 | agent-shell-new-shell                                   | Start a new agent shell.                                                      |
 | S-<return>      | agent-shell-newline                                     | Insert a newline, and move to left margin of the new line.                    |
 | C-<down> or M-n | agent-shell-next-input                                  | Cycle forwards through input history.                                         |
@@ -761,6 +804,7 @@ If you're able to determine the agent is missing a feature (or a bug is present)
 
 - [[https://github.com/zed-industries/claude-code-acp][claude-code-acp]]: For Claude Code.
 - [[https://github.com/zed-industries/codex-acp][codex-acp]]: For Codex.
+- [[https://github.com/nanogpt-community/nanocode][NanoCode]].
 - [[https://github.com/google-gemini/gemini-cli][Gemini CLI]].
 - [[https://block.github.io/goose/docs/getting-started/installation][Goose]].
 - [[https://github.com/QwenLM/qwen-code][Qwen Code]].
