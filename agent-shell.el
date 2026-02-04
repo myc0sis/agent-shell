@@ -756,9 +756,19 @@ When FORCE is non-nil, skip confirmation prompt."
       :command command
       :shell shell))))
 
+(defun agent-shell--safe-submit ()
+  "Submit current input with a clearer error if shell-maker isn't initialized."
+  (interactive)
+  (if (and (boundp 'shell-maker--config) shell-maker--config)
+      (shell-maker-submit)
+    (user-error (concat "Not in an initialized agent-shell buffer. "
+                        "Use M-x agent-shell or a specific agent start command."))))
+
 (defvar-keymap agent-shell-mode-map
   :parent shell-maker-mode-map
   :doc "Keymap for `agent-shell-mode'."
+  "<remap> <comint-send-input>" #'agent-shell--safe-submit
+  "<remap> <shell-maker-submit>" #'agent-shell--safe-submit
   "TAB" #'agent-shell-next-item
   "<backtab>" #'agent-shell-previous-item
   "n" #'agent-shell-next-item
